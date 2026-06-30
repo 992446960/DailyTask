@@ -1,5 +1,96 @@
 # DailyTask
 
+DailyTask 是一个 Kotlin + Java 混编的 Android 打卡任务工具，通过本地定时任务、前台保活服务、悬浮窗、通知监听和截屏服务，辅助在备用手机上无人值守触发目标应用的极速打卡流程。
+
+## 开发者快速说明
+
+### 项目结构
+
+| 路径 | 说明 |
+| --- | --- |
+| `app/` | Android 应用主模块 |
+| `app/src/main/java/com/pengxh/daily/app/ui/` | 页面入口，包含主界面、设置、任务配置、消息渠道等 Activity |
+| `app/src/main/java/com/pengxh/daily/app/service/` | 前台保活、倒计时、通知监听、截屏、悬浮窗服务 |
+| `app/src/main/java/com/pengxh/daily/app/utils/` | 任务调度、消息分发、节假日、日志、手势、遮罩等核心逻辑 |
+| `app/src/main/java/com/pengxh/daily/app/sqlite/` | Room 数据库、DAO 和数据实体 |
+| `app/src/main/res/` | 布局、主题、图片和字符串资源 |
+| `app/src/main/cpp/` | C++ 本地库，使用 CMake 构建 |
+
+### 技术栈
+
+| 类型 | 说明 |
+| --- | --- |
+| 平台 | Android 原生应用，单模块 `:app` |
+| 语言 | Kotlin + Java + 少量 C++ |
+| 构建 | Gradle Wrapper 8.13、Android Gradle Plugin 8.11.1、Kotlin Android Plugin 2.3.20 |
+| Android SDK | `compileSdk 36`、`targetSdk 36`、`minSdk 26` |
+| 数据存储 | Room + SharedPreferences |
+| UI | AndroidX AppCompat、Material Components、RecyclerView、ViewBinding |
+| 通信与通知 | Retrofit、OkHttp、Gson、JavaMail、企业微信 Webhook |
+| 事件与崩溃 | EventBus、Bugly |
+
+### 启动前必要条件
+
+1. 安装 JDK 17。
+2. 安装 Android Studio 或 Android SDK，并准备 Android SDK Platform 36、Build Tools、Platform Tools。
+3. 安装 CMake 3.22.1 和 NDK 21.4.7075529；项目启用了 `externalNativeBuild`。
+4. 配置 Android SDK 路径，二选一：
+   - 在项目根目录创建 `local.properties`，写入 `sdk.dir=/你的/Android/sdk`
+   - 或设置环境变量 `ANDROID_HOME=/你的/Android/sdk`
+5. 首次构建需要能访问 `google()`、`mavenCentral()`、`gradlePluginPortal()`、JitPack 和阿里云 Maven 仓库。
+6. 真机运行建议使用 Android 8.0 及以上设备；应用声明兼容 `minSdk 26` 到 `targetSdk 36`。
+7. 安装后正常执行任务需要开启悬浮窗、通知、通知监听、截屏授权；目标打卡应用必须已安装并支持极速打卡。
+
+### 启动方式
+
+Android Studio 启动：
+
+1. 用 Android Studio 打开项目根目录。
+2. 等待 Gradle Sync 完成。
+3. 选择 `app` 运行配置。
+4. 连接真机后点击 Run 或 Debug。
+
+命令行构建：
+
+```bash
+sh gradlew :app:assembleDebug
+```
+
+安装 Debug 包到已连接设备：
+
+```bash
+sh gradlew :app:installDebug
+```
+
+构建 Release 包：
+
+```bash
+sh gradlew :app:assembleRelease
+```
+
+当前仓库的 `gradlew` 没有可执行位，macOS/Linux 下直接执行 `./gradlew` 可能会报 `permission denied`。可以先用 `sh gradlew ...`，或执行一次 `chmod +x gradlew` 后再使用 `./gradlew ...`。
+
+### 运行方式
+
+1. 安装并打开 DailyTask。
+2. 按提示授予悬浮窗权限；应用启动时会拉起 `FloatingWindowService`。
+3. 授予通知权限并开启通知监听；通知监听由 `NotificationMonitorService` 处理。
+4. 如需通过截图识别打卡结果，启动截屏服务并选择“整个屏幕”；截屏链路由 `CaptureImageService` 和 `ProjectionSession` 处理。
+5. 在设置中配置结果来源、消息渠道、目标应用入口和任务参数。
+6. 添加每日任务后，应用会通过前台服务、倒计时服务和任务调度逻辑维持任务执行。
+7. 真机不能灭屏；如需低亮度伪装，使用主界面的音量减小键或手势进入伪灭屏模式。
+
+### 调试方式
+
+1. 构建问题先执行 `sh gradlew :app:assembleDebug`。如果提示 `SDK location not found`，补充 `local.properties` 或 `ANDROID_HOME`。
+2. 页面与业务流程优先用 Android Studio Debug，入口是 `MainActivity`。
+3. 日志查看使用 Logcat，按包名 `com.pengxh.daily.app` 过滤。
+4. 任务执行问题重点看 `TaskScheduler`、`CountDownTimerService`、`AlarmScheduler`、`TaskResetReceiver`。
+5. 远程指令问题重点看 `NotificationMonitorService`、`MessageDispatcher`、`MessageViewModel`。
+6. 截屏链路问题重点看 `CaptureImageService`、`ProjectionSession` 和系统 MediaProjection 授权状态。
+7. 数据问题使用 Android Studio App Inspection 查看 Room 数据库 `DailyTask.db`。
+8. 当前项目未提供 `test` 或 `androidTest` 目录，验证以真机调试和 Gradle 构建为主。
+
 ## 1. 本软件完全免费！
 
 ## 2. 近期发现有人在咸鱼私自倒卖本软件，请勿购买！如有购买，请联系卖家退款！
