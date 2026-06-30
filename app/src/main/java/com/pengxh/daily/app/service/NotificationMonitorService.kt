@@ -108,11 +108,11 @@ class NotificationMonitorService : NotificationListenerService() {
     private fun handleRemoteCommand(pkg: String, notice: String) {
         if (pkg in auxiliaryApp) {
             when {
-                notice.contains("执行任务") -> {
+                notice.contains("启动任务") -> {
                     EventBus.getDefault().post(ApplicationEvent.StartDailyTask)
                 }
 
-                notice.contains("终止任务") -> {
+                notice.contains("停止任务") -> {
                     EventBus.getDefault().post(ApplicationEvent.StopDailyTask)
                 }
 
