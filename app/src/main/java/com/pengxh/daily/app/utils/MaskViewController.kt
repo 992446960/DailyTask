@@ -46,6 +46,7 @@ class MaskViewController(
         binding.maskView.startAnimation(currentAnimation)
 
         // 关闭屏幕亮度
+        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity.window.setScreenBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF)
 
         // 隐藏任务界面
@@ -77,6 +78,7 @@ class MaskViewController(
         binding.maskView.startAnimation(currentAnimation)
 
         // 恢复屏幕亮度
+        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity.window.setScreenBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
 
         binding.maskView.visibility = View.GONE
@@ -128,5 +130,7 @@ class MaskViewController(
         stopClockAnimation()
         currentAnimation?.cancel()
         currentAnimation = null
+        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        activity.window.setScreenBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
     }
 }
