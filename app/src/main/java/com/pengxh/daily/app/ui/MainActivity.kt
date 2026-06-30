@@ -36,6 +36,7 @@ import com.pengxh.daily.app.utils.LogFileManager
 import com.pengxh.daily.app.utils.MaskViewController
 import com.pengxh.daily.app.utils.MessageDispatcher
 import com.pengxh.daily.app.utils.ProjectionSession
+import com.pengxh.daily.app.utils.ResetTime
 import com.pengxh.daily.app.utils.TaskDataManager
 import com.pengxh.daily.app.utils.TaskScheduler
 import com.pengxh.daily.app.utils.TimeoutTimerManager
@@ -66,6 +67,7 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
     companion object {
         var isTaskStarted = false
         var isCanDrawOverlay = false;
+        var isActive = false
     }
 
     private val context = this
@@ -87,6 +89,9 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
     private val taskScheduler by lazy { TaskScheduler(this, this) }
     private val timeoutTimerManager by lazy { TimeoutTimerManager() }
     private var taskBeans = mutableListOf<DailyTaskBean>()
+    private var shouldSendTaskStartMessage = false
+    private var shouldSendTaskStopMessage = false
+    private var shouldSendTaskExecutionMessage = false
     private val dailyTaskAdapter by lazy {
         DailyTaskAdapter(taskBeans).apply {
             setOnItemClickListener(object : DailyTaskAdapter.OnItemClickListener {
@@ -168,12 +173,13 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
 
     override fun initOnCreate(savedInstanceState: Bundle?) {
         EventBus.getDefault().register(this)
+        isActive = true
 
         // 处理 Alarm 触发时 Activity 未注册导致的 ResetDailyTask 事件丢失
         val stickyReset = EventBus.getDefault().getStickyEvent(ApplicationEvent.ResetDailyTask::class.java)
         if (stickyReset != null) {
             EventBus.getDefault().removeStickyEvent(stickyReset)
-            taskScheduler.startTask()
+            startTask(true)
         }
 
         // 显示悬浮窗
@@ -221,19 +227,18 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
         // Activity 重建时，若任务之前在跑，重新启动调度器恢复真实运行状态
         val wasRunning = SaveKeyValues.getValue(Constant.TASK_RUNNING_STATE_KEY, false) as Boolean
         if (wasRunning) {
-            taskScheduler.startTask()
+            startTask(false)
         }
     }
 
     private fun checkMissedReset() {
-        val resetHour = SaveKeyValues.getValue(
-            Constant.RESET_TIME_KEY, Constant.DEFAULT_RESET_HOUR
-        ) as Int
+        val resetMinutes = ResetTime.getMinutes()
+        val calendar = Calendar.getInstance()
+        val currentMinutes = calendar.get(Calendar.HOUR_OF_DAY) * 60 +
+                calendar.get(Calendar.MINUTE)
 
-        val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-
-        // 如果当前时间在目标小时之后，且今天还未重置，则执行重置
-        if (currentHour >= resetHour) {
+        // 如果当前时间在目标时间之后，且今天还未重置，则执行重置
+        if (currentMinutes >= resetMinutes) {
             val lastResetDate = SaveKeyValues.getValue(
                 Constant.LAST_RESET_DATE_KEY, ""
             ) as String
@@ -244,7 +249,7 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
                 val autoStart =
                     SaveKeyValues.getValue(Constant.TASK_AUTO_START_KEY, true) as Boolean
                 if (autoStart) {
-                    taskScheduler.startTask()
+                    startTask(true)
                 }
                 // 标记今天已重置
                 SaveKeyValues.putValue(Constant.LAST_RESET_DATE_KEY, today)
@@ -270,7 +275,7 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
 
             is ApplicationEvent.ResetDailyTask -> {
                 EventBus.getDefault().removeStickyEvent(ApplicationEvent.ResetDailyTask)
-                taskScheduler.startTask()
+                startTask(true)
             }
 
             is ApplicationEvent.UpdateResetTickTime -> {
@@ -281,14 +286,14 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
                 if (taskScheduler.isTaskStarted()) {
                     return
                 }
-                taskScheduler.startTask()
+                startTask(true)
             }
 
             is ApplicationEvent.StopDailyTask -> {
                 if (!taskScheduler.isTaskStarted()) {
                     return
                 }
-                taskScheduler.stopTask()
+                stopTask(true)
             }
 
             is ApplicationEvent.GoBackMainActivity -> { // 打卡成功发送的消息，回到主界面
@@ -321,13 +326,15 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
                                 )
                             } else {
                                 messageDispatcher.sendAttachmentMessage(
-                                    "截屏状态通知", "截图完成，结果请查看附件", imagePath
+                                    "截屏状态通知", "截图完成，结果请查看附件", imagePath, true
                                 )
+                                imagePath = ""
                             }
                             hasCaptured = false
                         }
                     }.start()
                 } else {
+                    imagePath = ""
                     timeoutTimerManager.startTimeoutTimer {
                         backToMainActivity()
 
@@ -339,12 +346,13 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
                         } else {
                             if (imagePath == "") {
                                 messageDispatcher.sendMessage(
-                                    "", "打卡完成，但是无法获取截图，请手动查看结果"
+                                    "任务执行结果通知", "任务完成，但是无法获取截图，请手动查看结果"
                                 )
                             } else {
                                 messageDispatcher.sendAttachmentMessage(
-                                    "", "打卡完成，结果请查看附件", imagePath
+                                    "任务执行结果通知", "任务完成，结果请查看附件", imagePath, true
                                 )
+                                imagePath = ""
                             }
                         }
 
@@ -391,7 +399,10 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
         binding.executeTaskButton.setIconResource(R.mipmap.ic_stop)
         binding.executeTaskButton.setIconTintResource(R.color.red)
         binding.executeTaskButton.text = "停止"
-        messageDispatcher.sendMessage("启动任务通知", "任务启动成功，请注意下次打卡时间")
+        if (shouldSendTaskStartMessage) {
+            messageDispatcher.sendMessage("启动任务通知", "任务启动成功，请注意下次打卡时间")
+        }
+        shouldSendTaskStartMessage = false
     }
 
     override fun onTaskStopped() {
@@ -401,7 +412,11 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
         binding.tipsView.text = ""
 
         resetExecuteButton()
-        messageDispatcher.sendMessage("停止任务通知", "任务停止成功，请及时打开下次任务")
+        if (shouldSendTaskStopMessage) {
+            messageDispatcher.sendMessage("停止任务通知", "任务停止成功，请及时打开下次任务")
+        }
+        shouldSendTaskStopMessage = false
+        shouldSendTaskExecutionMessage = false
     }
 
     override fun onTaskCompleted() {
@@ -413,6 +428,8 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
     }
 
     override fun onTaskExecuting(taskIndex: Int, task: DailyTaskBean, realTime: String) {
+        ensureCaptureSourceAvailable()
+
         // 任务执行中
         binding.tipsView.text = String.format(
             Locale.getDefault(), "准备执行第 %d 个任务", taskIndex
@@ -425,7 +442,17 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
             appendLine("计划时间：${task.time}")
             append("实际时间：$realTime")
         }
-        messageDispatcher.sendMessage("任务执行通知", content)
+        if (shouldSendTaskExecutionMessage) {
+            messageDispatcher.sendMessage("任务执行通知", content)
+        }
+    }
+
+    private fun ensureCaptureSourceAvailable() {
+        val resultSource = SaveKeyValues.getValue(Constant.RESULT_SOURCE_KEY, 0) as Int
+        if (resultSource == 1 && !ProjectionSession.isStateActive()) {
+            SaveKeyValues.putValue(Constant.RESULT_SOURCE_KEY, 0)
+            messageDispatcher.sendMessage("截屏状态通知", "截屏服务已断开，请重新授权，已切换到通知模式")
+        }
     }
 
     override fun onTaskExecutionError(message: String) {
@@ -435,12 +462,31 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
         binding.tipsView.text = message
         binding.tipsView.setTextColor(R.color.red.convertColor(context))
         messageDispatcher.sendMessage("任务执行出错通知", message)
+        shouldSendTaskExecutionMessage = false
     }
 
     private fun resetExecuteButton() {
         binding.executeTaskButton.setIconResource(R.mipmap.ic_start)
         binding.executeTaskButton.setIconTintResource(R.color.ios_green)
         binding.executeTaskButton.text = "启动"
+    }
+
+    private fun startTask(sendStartMessage: Boolean) {
+        shouldSendTaskStartMessage = sendStartMessage
+        shouldSendTaskExecutionMessage = sendStartMessage
+        taskScheduler.startTask()
+        if (!taskScheduler.isTaskStarted()) {
+            shouldSendTaskStartMessage = false
+            shouldSendTaskExecutionMessage = false
+        }
+    }
+
+    private fun stopTask(sendStopMessage: Boolean) {
+        shouldSendTaskStopMessage = sendStopMessage
+        taskScheduler.stopTask()
+        if (taskScheduler.isTaskStarted()) {
+            shouldSendTaskStopMessage = false
+        }
     }
 
     private val overlayPermissionLauncher = registerForActivityResult(permissionContract) {
@@ -532,13 +578,13 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
         binding.executeTaskButton.setOnClickListener {
             // 用运行模式标志判断，而非调度器内部状态（任务当天完成后调度器已闲置但仍在运行模式）
             if (isTaskStarted) {
-                taskScheduler.stopTask()
+                stopTask(false)
             } else {
                 if (DatabaseWrapper.loadAllTask().isEmpty()) {
                     "循环任务启动失败，请先添加任务时间点".show(this)
                     return@setOnClickListener
                 }
-                taskScheduler.startTask()
+                startTask(false)
             }
         }
     }
@@ -621,6 +667,7 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        isActive = true
         LogFileManager.writeLog("onNewIntent: ${packageName}回到前台")
 
         if (ProjectionSession.isStateActive()) {
@@ -640,6 +687,7 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
 
     override fun onDestroy() {
         super.onDestroy()
+        isActive = false
         maskViewController.destroy()
         taskScheduler.destroy()
         timeoutTimerManager.destroy()

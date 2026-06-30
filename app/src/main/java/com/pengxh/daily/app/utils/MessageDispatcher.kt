@@ -6,6 +6,7 @@ import com.pengxh.daily.app.BuildConfig
 import com.pengxh.daily.app.vm.MessageViewModel
 import com.pengxh.kt.lite.extensions.timestampToDate
 import com.pengxh.kt.lite.utils.SaveKeyValues
+import java.io.File
 
 class MessageDispatcher(private val context: Context, private val viewModel: MessageViewModel) {
 
@@ -43,12 +44,22 @@ class MessageDispatcher(private val context: Context, private val viewModel: Mes
         }
     }
 
-    fun sendAttachmentMessage(title: String, content: String, filePath: String) {
+    fun sendAttachmentMessage(
+        title: String,
+        content: String,
+        filePath: String,
+        deleteAfterSend: Boolean = false
+    ) {
         val messageTitle =
             SaveKeyValues.getValue(Constant.MESSAGE_TITLE_KEY, "打卡结果通知") as String
 
         val battery = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         val date = System.currentTimeMillis().timestampToDate()
+        val onFinished = {
+            if (deleteAfterSend) {
+                File(filePath).takeIf { it.exists() }?.delete()
+            }
+        }
 
         val channelType = SaveKeyValues.getValue(Constant.CHANNEL_TYPE_KEY, 0) as Int
         when (channelType) {
@@ -61,7 +72,7 @@ class MessageDispatcher(private val context: Context, private val viewModel: Mes
 //                               版本号：${BuildConfig.VERSION_NAME}
 //                               当前手机电量：${if (battery >= 0) "battery%" else "未知"}
 //                              """.trimIndent()
-                viewModel.sendImageMessage(filePath, {}, {}, {})
+                viewModel.sendImageMessage(filePath, {}, onFinished, { onFinished() })
             }
 
             1 -> {
@@ -76,7 +87,9 @@ class MessageDispatcher(private val context: Context, private val viewModel: Mes
                     title.ifBlank { messageTitle },
                     content,
                     filePath,
-                    false
+                    false,
+                    onFinished,
+                    { onFinished() }
                 )
             }
         }

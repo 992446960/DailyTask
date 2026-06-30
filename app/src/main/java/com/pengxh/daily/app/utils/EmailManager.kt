@@ -147,26 +147,22 @@ class EmailManager(private val context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 Transport.send(message)
-                if (isTest) {
-                    withContext(Dispatchers.Main) {
-                        onSuccess?.invoke()
-                    }
+                withContext(Dispatchers.Main) {
+                    onSuccess?.invoke()
                 }
             } catch (e: Exception) {
-                if (isTest) {
-                    val errorMessage = when {
-                        e.message?.contains("535", ignoreCase = true) == true ->
-                            "邮箱认证失败，请检查邮箱账号和授权码是否正确"
+                val errorMessage = when {
+                    e.message?.contains("535", ignoreCase = true) == true ->
+                        "邮箱认证失败，请检查邮箱账号和授权码是否正确"
 
-                        e.message?.contains("authentication failed", ignoreCase = true) == true ->
-                            "邮箱认证失败，请确认使用的是授权码而非登录密码"
+                    e.message?.contains("authentication failed", ignoreCase = true) == true ->
+                        "邮箱认证失败，请确认使用的是授权码而非登录密码"
 
-                        else -> "邮件发送失败: ${e.javaClass.simpleName} - ${e.message}"
-                    }
+                    else -> "邮件发送失败: ${e.javaClass.simpleName} - ${e.message}"
+                }
 
-                    withContext(Dispatchers.Main) {
-                        onFailure?.invoke(errorMessage)
-                    }
+                withContext(Dispatchers.Main) {
+                    onFailure?.invoke(errorMessage)
                 }
             }
         }
