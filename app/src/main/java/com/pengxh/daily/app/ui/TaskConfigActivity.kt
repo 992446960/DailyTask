@@ -7,9 +7,15 @@ import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import com.github.gzuliyujiang.wheelpicker.annotation.TimeMode
+import com.github.gzuliyujiang.wheelpicker.entity.TimeEntity
+import com.github.gzuliyujiang.wheelpicker.widget.TimeWheelLayout
 import androidx.core.graphics.toColorInt
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.textview.MaterialTextView
 import com.pengxh.daily.app.R
 import com.pengxh.daily.app.databinding.ActivityTaskConfigBinding
 import com.pengxh.daily.app.extensions.isApplicationExist
@@ -22,6 +28,7 @@ import com.pengxh.daily.app.utils.ApplicationEvent
 import com.pengxh.daily.app.utils.ChinaHolidayCalendar
 import com.pengxh.daily.app.utils.ChinaHolidayRemoteUpdater
 import com.pengxh.daily.app.utils.Constant
+import com.pengxh.daily.app.utils.ResetTime
 import com.pengxh.kt.lite.base.KotlinBaseActivity
 import com.pengxh.kt.lite.extensions.convertColor
 import com.pengxh.kt.lite.extensions.isNumber
@@ -34,6 +41,7 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -41,7 +49,6 @@ class TaskConfigActivity : KotlinBaseActivity<ActivityTaskConfigBinding>() {
 
     private val kTag = "TaskConfigActivity"
     private val context = this
-    private val hourArray = arrayListOf("0", "1", "2", "3", "4", "5", "6", "自定义（单位：时）")
     private val timeArray = arrayListOf("15", "30", "45", "自定义（单位：秒）")
     private val optionArray = arrayListOf("QQ", "微信", "TIM", "支付宝", "剪切板")
     private val clipboard by lazy { getSystemService(ClipboardManager::class.java) }
@@ -67,10 +74,7 @@ class TaskConfigActivity : KotlinBaseActivity<ActivityTaskConfigBinding>() {
     override fun initOnCreate(savedInstanceState: Bundle?) {
         EventBus.getDefault().register(this)
 
-        val hour = SaveKeyValues.getValue(
-            Constant.RESET_TIME_KEY, Constant.DEFAULT_RESET_HOUR
-        ) as Int
-        binding.resetTimeView.text = "每天${hour}点"
+        binding.resetTimeView.text = ResetTime.formatDaily()
         val time = SaveKeyValues.getValue(
             Constant.STAY_DD_TIMEOUT_KEY, Constant.DEFAULT_OVER_TIME
         ) as Int
@@ -98,15 +102,7 @@ class TaskConfigActivity : KotlinBaseActivity<ActivityTaskConfigBinding>() {
 
     override fun initEvent() {
         binding.resetTimeLayout.setOnClickListener {
-            BottomActionSheet.Builder()
-                .setContext(this)
-                .setActionItemTitle(hourArray)
-                .setItemTextColor(R.color.theme_color.convertColor(this))
-                .setOnActionSheetListener(object : BottomActionSheet.OnActionSheetListener {
-                    override fun onActionItemClick(position: Int) {
-                        setHourByPosition(position)
-                    }
-                }).build().show()
+            showResetTimePicker()
         }
 
         binding.timeoutLayout.setOnClickListener {
@@ -207,10 +203,9 @@ class TaskConfigActivity : KotlinBaseActivity<ActivityTaskConfigBinding>() {
             ) as Boolean
             exportData.isBackToHome = isBackToHome
 
-            val hour = SaveKeyValues.getValue(
-                Constant.RESET_TIME_KEY, Constant.DEFAULT_RESET_HOUR
-            ) as Int
-            exportData.resetTime = hour
+            val resetMinutes = ResetTime.getMinutes()
+            exportData.resetTime = resetMinutes / 60
+            exportData.resetTimeMinutes = resetMinutes
 
             val time = SaveKeyValues.getValue(
                 Constant.STAY_DD_TIMEOUT_KEY, Constant.DEFAULT_OVER_TIME
@@ -306,47 +301,45 @@ class TaskConfigActivity : KotlinBaseActivity<ActivityTaskConfigBinding>() {
             "今日：${status.todayInfo.reason} · $todayAction\n更新：$updatedAt"
     }
 
-    private fun setHourByPosition(position: Int) {
-        if (position == hourArray.size - 1) {
-            AlertInputDialog.Builder()
-                .setContext(this)
-                .setTitle("设置重置时间")
-                .setHintMessage("直接输入整数时间即可，如：6")
-                .setNegativeButton("取消")
-                .setPositiveButton("确定")
-                .setOnDialogButtonClickListener(object :
-                    AlertInputDialog.OnDialogButtonClickListener {
-                    override fun onConfirmClick(value: String) {
-                        if (value.isNumber()) {
-                            updateResetHour(value.toInt())
-                        } else {
-                            "直接输入整数时间即可".show(context)
-                        }
-                    }
-
-                    override fun onCancelClick() {}
-                }).build().show()
-        } else {
-            updateResetHour(hourArray[position].toInt())
+    private fun showResetTimePicker() {
+        val resetMinutes = ResetTime.getMinutes()
+        val view = layoutInflater.inflate(R.layout.bottom_sheet_layout_select_time, null)
+        val dialog = BottomSheetDialog(this)
+        dialog.setContentView(view)
+        val titleView = view.findViewById<MaterialTextView>(R.id.titleView)
+        titleView.text = "设置重置时间"
+        val timePicker = view.findViewById<TimeWheelLayout>(R.id.timePicker)
+        timePicker.setTimeMode(TimeMode.HOUR_24_NO_SECOND)
+        timePicker.setDefaultValue(TimeEntity.target(resetMinutes / 60, resetMinutes % 60, 0))
+        view.findViewById<MaterialButton>(R.id.saveButton).setOnClickListener {
+            updateResetTime(ResetTime.from(timePicker.selectedHour, timePicker.selectedMinute))
+            dialog.dismiss()
         }
+        dialog.show()
     }
 
-    private fun updateResetHour(hour: Int) {
-        if (hour !in 0..23) {
-            "重置时间必须在0到23点之间".show(context)
-            return
-        }
-        binding.resetTimeView.text = "每天${hour}点"
-        setTaskResetTime(hour)
+    private fun updateResetTime(minutes: Int) {
+        binding.resetTimeView.text = ResetTime.formatDaily(minutes)
+        setTaskResetTime(minutes)
     }
 
-    private fun setTaskResetTime(hour: Int) {
-        SaveKeyValues.putValue(Constant.RESET_TIME_KEY, hour)
+    private fun setTaskResetTime(minutes: Int) {
+        ResetTime.save(minutes)
+        clearTodayResetFlagIfNeeded(minutes)
         // 取消旧 Alarm，注册新时间点的 Alarm
         AlarmScheduler.cancel(this)
-        AlarmScheduler.schedule(this, hour)
+        AlarmScheduler.schedule(this, minutes)
         // 通知 Service 更新倒计时显示
         EventBus.getDefault().post(ApplicationEvent.SetResetTaskTime)
+    }
+
+    private fun clearTodayResetFlagIfNeeded(minutes: Int) {
+        val calendar = Calendar.getInstance()
+        val currentMinutes = calendar.get(Calendar.HOUR_OF_DAY) * 60 +
+                calendar.get(Calendar.MINUTE)
+        if (minutes > currentMinutes) {
+            SaveKeyValues.putValue(Constant.LAST_RESET_DATE_KEY, "")
+        }
     }
 
     private fun setTimeByPosition(position: Int) {

@@ -10,22 +10,23 @@ import java.util.Calendar
 object AlarmScheduler {
 
     /**
-     * 注册下一次重置 Alarm（在目标小时内任意时刻触发，因为精确到整点，可能会因为不同的系统以及厂商定制，导致无法精确到整点）
+     * 注册下一次重置 Alarm（在目标时间后一小时窗口内触发，避免部分系统无法精确唤醒）
      */
-    fun schedule(context: Context, hour: Int) {
+    fun schedule(context: Context, minutes: Int) {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val pendingIntent = buildPendingIntent(context)
-        val safeHour = hour.coerceIn(0, 23)
+        val safeMinutes = minutes.coerceIn(0, 1439)
+        val hour = safeMinutes / 60
+        val minute = safeMinutes % 60
 
-        // 计算下一次触发时间（目标小时的开始时刻）
+        // 计算下一次触发时间
         val calendar = Calendar.getInstance().apply {
             timeInMillis = System.currentTimeMillis()
-            set(Calendar.HOUR_OF_DAY, safeHour)
-            set(Calendar.MINUTE, 0)
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
 
-            // 如果今天的时间点已过，则设为明天
             if (timeInMillis <= System.currentTimeMillis()) {
                 add(Calendar.DATE, 1)
             }

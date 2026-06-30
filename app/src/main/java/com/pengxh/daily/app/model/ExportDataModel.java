@@ -15,7 +15,8 @@ public class ExportDataModel {
     private EmailConfigBean emailConfig; // 邮箱配置
     private boolean detectGesture; // 检测手势
     private boolean backToHome; // 返回桌面
-    private int resetTime; // 重置时间
+    private int resetTime; // 兼容旧版本的重置小时
+    private Integer resetTimeMinutes; // 重置时间，按当天分钟数保存
     private int overTime; // 超时时间
     private String command; // 口令
     private boolean autoStart; // 自动启动
@@ -78,6 +79,14 @@ public class ExportDataModel {
 
     public void setResetTime(int resetTime) {
         this.resetTime = resetTime;
+    }
+
+    public Integer getResetTimeMinutes() {
+        return resetTimeMinutes;
+    }
+
+    public void setResetTimeMinutes(Integer resetTimeMinutes) {
+        this.resetTimeMinutes = resetTimeMinutes;
     }
 
     public int getOverTime() {

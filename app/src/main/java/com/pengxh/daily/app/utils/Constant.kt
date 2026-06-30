@@ -12,6 +12,7 @@ object Constant {
     // SharedPreferences 键
     // ============================================================
     const val RESET_TIME_KEY = "RESET_TIME_KEY"
+    const val RESET_TIME_MINUTES_KEY = "RESET_TIME_MINUTES_KEY"
     const val LAST_RESET_DATE_KEY = "LAST_RESET_DATE_KEY"
     const val STAY_DD_TIMEOUT_KEY = "STAY_DD_TIMEOUT_KEY"
     const val GESTURE_DETECTOR_KEY = "GESTURE_DETECTOR_KEY"

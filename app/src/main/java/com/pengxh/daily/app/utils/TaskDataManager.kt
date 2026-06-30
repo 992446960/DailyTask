@@ -69,7 +69,9 @@ class TaskDataManager() {
 
         SaveKeyValues.putValue(Constant.GESTURE_DETECTOR_KEY, config.isDetectGesture)
         SaveKeyValues.putValue(Constant.BACK_TO_HOME_KEY, config.isBackToHome)
-        SaveKeyValues.putValue(Constant.RESET_TIME_KEY, config.resetTime.coerceIn(0, 23))
+        val resetMinutes = config.resetTimeMinutes?.coerceIn(0, 1439)
+            ?: (config.resetTime.coerceIn(0, 23) * 60)
+        ResetTime.save(resetMinutes)
         SaveKeyValues.putValue(
             Constant.STAY_DD_TIMEOUT_KEY,
             config.overTime.takeIf { it > 0 } ?: Constant.DEFAULT_OVER_TIME

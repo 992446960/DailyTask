@@ -9,9 +9,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.pengxh.daily.app.R
+import com.pengxh.daily.app.ui.MainActivity
 import com.pengxh.daily.app.utils.AlarmScheduler
 import com.pengxh.daily.app.utils.ApplicationEvent
 import com.pengxh.daily.app.utils.ChinaHolidayRemoteUpdater
@@ -19,6 +22,8 @@ import com.pengxh.daily.app.utils.Constant
 import com.pengxh.daily.app.utils.EmailManager
 import com.pengxh.daily.app.utils.HttpRequestManager
 import com.pengxh.daily.app.utils.LogFileManager
+import com.pengxh.daily.app.utils.ResetTime
+import com.pengxh.daily.app.utils.TimeKit
 import com.pengxh.kt.lite.utils.SaveKeyValues
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -31,10 +36,22 @@ import java.util.Locale
  * */
 class ForegroundRunningService : Service() {
 
+    companion object {
+        const val ACTION_RESET_DAILY_TASK = "com.pengxh.daily.app.RESET_DAILY_TASK"
+    }
+
     private val batteryManager by lazy { getSystemService(BatteryManager::class.java) }
     private val httpRequestManager by lazy { HttpRequestManager(this) }
     private val emailManager by lazy { EmailManager(this) }
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private var lastRemindTime = 0L
+    private val resetTickerRunnable = object : Runnable {
+        override fun run() {
+            checkMissedDailyReset()
+            updateResetTimeView()
+            mainHandler.postDelayed(this, 1000)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -74,14 +91,10 @@ class ForegroundRunningService : Service() {
             registerReceiver(systemBroadcastReceiver, filter)
         }
 
-        // 立即更新一次倒计时显示
-        updateResetTimeView()
+        mainHandler.post(resetTickerRunnable)
 
         // 每次 Service 启动时重新注册 Alarm
-        val resetHour = SaveKeyValues.getValue(
-            Constant.RESET_TIME_KEY, Constant.DEFAULT_RESET_HOUR
-        ) as Int
-        AlarmScheduler.schedule(this, resetHour)
+        AlarmScheduler.schedule(this, ResetTime.getMinutes())
 
         ChinaHolidayRemoteUpdater.refreshIfNeeded(this)
 
@@ -90,8 +103,54 @@ class ForegroundRunningService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_RESET_DAILY_TASK) {
+            startResetDailyTask()
+        }
         checkLowBattery()
         return START_STICKY
+    }
+
+    private fun startResetDailyTask() {
+        LogFileManager.writeLog("定时刷新每日任务，通过主界面自动启动任务")
+        EventBus.getDefault().postSticky(ApplicationEvent.ResetDailyTask)
+        Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            startActivity(this)
+        }
+    }
+
+    private fun checkMissedDailyReset() {
+        val resetMinutes = ResetTime.getMinutes()
+        val calendar = Calendar.getInstance()
+        val currentMinutes = calendar.get(Calendar.HOUR_OF_DAY) * 60 +
+                calendar.get(Calendar.MINUTE)
+        if (currentMinutes < resetMinutes || hasResetToday()) {
+            return
+        }
+
+        markTodayAsReset()
+        AlarmScheduler.schedule(this, resetMinutes)
+
+        val autoStart = SaveKeyValues.getValue(Constant.TASK_AUTO_START_KEY, true) as Boolean
+        if (!autoStart) {
+            LogFileManager.writeLog("定时刷新每日任务，自动循环已关闭")
+            return
+        }
+
+        startResetDailyTask()
+    }
+
+    private fun hasResetToday(): Boolean {
+        val lastResetDate = SaveKeyValues.getValue(Constant.LAST_RESET_DATE_KEY, "") as String
+        return lastResetDate == TimeKit.getTodayDate()
+    }
+
+    private fun markTodayAsReset() {
+        val today = TimeKit.getTodayDate()
+        SaveKeyValues.putValue(Constant.LAST_RESET_DATE_KEY, today)
+        SaveKeyValues.putValue(Constant.TASK_RUNNING_STATE_KEY, false)
+        LogFileManager.writeLog("标记 $today 已重置")
     }
 
     private val systemBroadcastReceiver = object : BroadcastReceiver() {
@@ -116,41 +175,37 @@ class ForegroundRunningService : Service() {
     }
 
     private fun updateResetTimeView() {
-        val resetHour = SaveKeyValues.getValue(
-            Constant.RESET_TIME_KEY, Constant.DEFAULT_RESET_HOUR
-        ) as Int
-        val seconds = resetTaskSeconds(resetHour)
+        val seconds = resetTaskSeconds(ResetTime.getMinutes())
 
         val hours = seconds / 3600
         val minutes = (seconds % 3600) / 60
-        val time = String.format(Locale.getDefault(), "%02d小时%02d分钟", hours, minutes)
+        val remainingSeconds = seconds % 60
+        val time = String.format(
+            Locale.getDefault(),
+            "%02d小时%02d分钟%02d秒",
+            hours,
+            minutes,
+            remainingSeconds
+        )
         EventBus.getDefault().post(ApplicationEvent.UpdateResetTickTime("${time}后刷新每日任务"))
     }
 
-    private fun resetTaskSeconds(hour: Int): Int {
+    private fun resetTaskSeconds(minutes: Int): Int {
         val calendar = Calendar.getInstance()
-        val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
-        val currentMinute = calendar.get(Calendar.MINUTE)
-        val currentSecond = calendar.get(Calendar.SECOND)
+        val safeMinutes = minutes.coerceIn(0, 1439)
+        val hour = safeMinutes / 60
+        val minute = safeMinutes % 60
 
-        // 设置今天的计划时间
         val todayTargetMillis = calendar.clone() as Calendar
         todayTargetMillis.set(Calendar.HOUR_OF_DAY, hour)
-        todayTargetMillis.set(Calendar.MINUTE, 0)
+        todayTargetMillis.set(Calendar.MINUTE, minute)
         todayTargetMillis.set(Calendar.SECOND, 0)
         todayTargetMillis.set(Calendar.MILLISECOND, 0)
 
-        // 根据当前时间决定计算哪一天的计划时间
-        val targetMillis = if (currentHour < hour) {
-            // 今天还没到计划时间
-            todayTargetMillis.timeInMillis
-        } else if (currentHour == hour && currentMinute == 0 && currentSecond == 0) {
-            // 刚好是整点，计算明天的
+        val targetMillis = if (todayTargetMillis.timeInMillis <= System.currentTimeMillis()) {
             todayTargetMillis.add(Calendar.DATE, 1)
             todayTargetMillis.timeInMillis
         } else {
-            // 今天已经过了计划时间，计算明天的
-            todayTargetMillis.add(Calendar.DATE, 1)
             todayTargetMillis.timeInMillis
         }
 
@@ -187,6 +242,7 @@ class ForegroundRunningService : Service() {
         }
 
         EventBus.getDefault().unregister(this)
+        mainHandler.removeCallbacks(resetTickerRunnable)
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
