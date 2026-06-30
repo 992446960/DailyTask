@@ -121,10 +121,8 @@ class SettingsActivity : KotlinBaseActivity<ActivitySettingsBinding>() {
             }
 
             is ApplicationEvent.ProjectionFailed -> {
-                "截屏服务已断开，已切换到通知模式".show(this)
+                "截屏服务已断开，请重新授权".show(this)
                 binding.captureSwitch.isChecked = false
-                binding.captureRadioButton.isChecked = false
-                binding.noticeRadioButton.isChecked = true
                 binding.captureTipsView.visibility = View.VISIBLE
             }
 
@@ -392,10 +390,9 @@ class SettingsActivity : KotlinBaseActivity<ActivitySettingsBinding>() {
                 binding.captureRadioButton.isChecked = true
                 binding.noticeRadioButton.isChecked = false
             } else {
-                binding.captureRadioButton.isChecked = false
-                binding.noticeRadioButton.isChecked = true
-                SaveKeyValues.putValue(Constant.RESULT_SOURCE_KEY, 0)
-                Log.w(kTag, "截屏服务未运行，已自动切换到通知模式")
+                binding.captureRadioButton.isChecked = true
+                binding.noticeRadioButton.isChecked = false
+                Log.w(kTag, "截屏服务未运行，请重新授权")
             }
         }
 

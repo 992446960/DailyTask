@@ -366,8 +366,7 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
             }
 
             is ApplicationEvent.ProjectionDestroyed -> {
-                "截屏服务已停止，已切换到通知模式".show(this)
-                SaveKeyValues.putValue(Constant.RESULT_SOURCE_KEY, 0)
+                "截屏服务已停止，请重新授权".show(this)
             }
 
             else -> {}
@@ -450,8 +449,7 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
     private fun ensureCaptureSourceAvailable() {
         val resultSource = SaveKeyValues.getValue(Constant.RESULT_SOURCE_KEY, 0) as Int
         if (resultSource == 1 && !ProjectionSession.isStateActive()) {
-            SaveKeyValues.putValue(Constant.RESULT_SOURCE_KEY, 0)
-            messageDispatcher.sendMessage("截屏状态通知", "截屏服务已断开，请重新授权，已切换到通知模式")
+            messageDispatcher.sendMessage("截屏状态通知", "截屏服务已断开，请重新授权")
         }
     }
 
@@ -676,7 +674,6 @@ class MainActivity : KotlinBaseActivity<ActivityMainBinding>(), TaskScheduler.Ta
             LogFileManager.writeLog("截屏服务异常：MediaProjection 已失效")
             if (SaveKeyValues.getValue(Constant.RESULT_SOURCE_KEY, 0) as Int == 1) {
                 "截屏服务已断开，请重新授权".show(this)
-                SaveKeyValues.putValue(Constant.RESULT_SOURCE_KEY, 0)
             }
         }
 
